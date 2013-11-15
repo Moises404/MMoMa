@@ -1,0 +1,14 @@
+{
+	"name"		: "Chat and Fight",
+	"description"	: "Chat and Fight with your friends. It is fun and free",
+	"version"	: "1.0.1",
+	"app"		: {
+		"launch": {
+			"web_url": "http://mmo3d.jit.su/"
+		}
+	},
+	"icons"		: {
+		"128": "icon_128x128.png"
+	},
+	"manifest_version"	: 2
+}
