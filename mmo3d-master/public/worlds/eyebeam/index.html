@@ -1,0 +1,267 @@
+<!doctype html>
+<html manifest="manifest.appcache">
+<!-- <html> -->
+
+<title>Chat and fight - multi player game in WebGL</title>
+<!-- socket.io MUST be before require.js, else require.js chokes on a 'anonymous define' in socket.io
+-->
+<script src="../../../socket.io/socket.io.js"></script>
+<script src="../../vendor/tquery/build/tquery-bundle-require.js"></script>
+<script src="../../vendor/client.js"></script>
+<body><div style="position: absolute; font-size: 200%; right: 1em; bottom: 0.5em; text-align: right;" id='uiContainer'>
+	<form action="javascript:void(0)" id='nicknameForm' style='display: inline-block'>
+		<input type="text"/>
+	</form>
+	<span style='font-size: 50%; font-weight: bolder;'>in room</span>
+	<form action="javascript:void(0)" id='roomNameForm' style='display: inline-block'>
+		<input type="text"/>
+	</form>
+	<span style='font-size: 50%; font-weight: bolder;'>dressed as</span>
+	<select id="skinSelect">
+		<option value="char.png">char</option>
+		<option value="3djesus.png">3djesus</option>
+		<option value="agentsmith.png">agentsmith</option>
+		<option value="batman.png">batman</option>
+		<option value="god.png">god</option>
+		<option value="Joker.png">Joker</option>
+		<option value="Mario.png">Mario</option>
+		<option value="martialartist.png">martialartist</option>
+		<option value="robocop.png">robocop</option>
+		<option value="Sonicthehedgehog.png">Sonic the hedgehog</option>
+		<option value="Spiderman.png">Spiderman</option>
+		<option value="Superman.png">Superman</option>
+		<option value="theflash.png">theflash</option>
+		<option value="woody.png">woody</option>
+		<option value="Iron-Man-Minecraft-Skin.png">ironman</option>
+	</select>
+	<form action="javascript:void(0)" id='chatInputForm'>
+		<input size=104 type="text" placeholder='Chat here'/>
+	</form>
+</div><div id="info">
+	Chat and Fight by <a href='http://twitter.com/jerome_etienne' target='_blank'>@jerome_etienne</a>
+	-
+	multiplayer game in WebGL
+	<br/>
+	<a href='https://github.com/mrdoob/three.js/' target='_blank'>three.js</a> with
+	<a href='http://jeromeetienne.github.com/tquery/' target='_blank'>tQuery API</a> for 3D
+	-
+	<a href='http://jeromeetienne.github.com/webaudio.js/' target='_blank'>webaudio.js</a> for sound
+	- hosted on <a href='http://nodejitsu.com/' target='_blank'>nodejitsu</a>
+</div><script>
+var yeller	= {};
+var sounds	= {};
+var gameServer	= null;
+var worldName	= 'eyebeam';
+var cache	= new tQuery.MicroCache();
+require([
+	  'tquery.pproc'
+
+	, 'js/scene-light'
+	, 'js/scene-ground'
+	, 'js/character'
+	, 'js/player'
+	, 'js/sounds'
+	, 'js/pageui'
+], function(){
+	// setup yeller
+	tQuery.MicroeventMixin(yeller);
+
+	var world	= tQuery.createWorld().start().pageTitle('#info').boilerplate({
+		fullscreen	: false,
+		screenshot	: false
+	});
+	
+	world.removeCameraControls();
+	
+	document.querySelector('#canvasContainer').appendChild(world.tRenderer().domElement)
+
+	// enable shaddow in the renderer
+	world.shadowMapEnabled(true);
+
+	var runOnMobile	= 'ontouchstart' in window ? true : false;
+	if( runOnMobile )	world.shadowMapEnabled(false);
+
+	// enable sound
+	sounds	= new Sounds();
+
+	// determine roomName
+	var location	= window.location
+	location.hash	= location.hash	|| 'Public';
+	var roomName	= location.hash.slice(1);
+
+
+	//////////////////////////////////////////////////////////////////////////
+	//		lights							//
+	//////////////////////////////////////////////////////////////////////////
+	var sceneLights	= new SceneLights()
+	
+	//////////////////////////////////////////////////////////////////////////
+	//		player							//
+	//////////////////////////////////////////////////////////////////////////
+	// create player
+	var player	= null;
+	var characters	= {};
+
+	//////////////////////////////////////////////////////////////////////////
+	//		player							//
+	//////////////////////////////////////////////////////////////////////////
+	// initiate connect with server
+	gameServer	= new SimpleMMOServer(worldName+'/'+roomName, {
+		nickName	: 'Player-'+Math.floor(Math.random()*10000).toString(16),
+		skinBasename	: 'char.png',
+	});
+
+	gameServer.addEventListener('roomJoined', function(sourceId, usersInfo){
+		yeller.dispatchEvent('roomJoined');
+		// console.log('roomJoined', sourceId, usersInfo, gameServer.usersInfo())
+		// create the player
+		player	= new Player({
+			sourceId	: sourceId,
+			userInfo	: gameServer.userInfo(),
+			gameServer	: gameServer,
+		});
+		characters[sourceId]	= player;
+		// create all the others characters present in the room
+		// TODO fix issue with initial cootrdinate
+		Object.keys(usersInfo).forEach(function(sourceId){
+			if( sourceId === player.sourceId() )	return;
+			var userInfo	= usersInfo[sourceId];
+			// create the character
+			var character	= new Character({
+				sourceId	: sourceId,
+				userInfo	: userInfo
+			});
+			// add the character to other characters
+			console.assert(characters[sourceId] === undefined)
+			characters[sourceId]	= character;
+		});
+		// periodically send the position of the character
+		// - NOTE: not done on requestAnimationFrame as it has to be done even if page isnt visible
+		setInterval(function(){
+			var character3D	= player.object3D();
+			var position	= character3D.position();
+			var rotation	= character3D.rotation();
+			gameServer.clientBroadcast({
+				type	: 'positionChange',
+				position: { x : position.x, y : position.y, z : position.z },
+				rotation: { x : rotation.x, y : rotation.y, z : rotation.z },
+			});
+		}, 1000/60);
+	});
+	
+	gameServer.addEventListener('userJoin', function(data){
+		console.log('userJoin', arguments)
+		// create the character
+		var sourceId	= data.sourceId;
+		var userInfo	= data.userInfo;
+		var character	= new Character({
+			sourceId	: sourceId,
+			userInfo	: userInfo
+		});
+		// add the character to other characters
+		console.assert(characters[sourceId] === undefined)
+		characters[sourceId]	= character;
+		// play sound
+		sounds.userJoin	&& sounds.userJoin.play()
+	});
+
+	gameServer.addEventListener('userLeft', function(data){
+		console.log('userLeft', data)
+		// add some alias
+		var sourceId	= data.sourceId;
+		var character	= characters[sourceId];
+		// stop this player
+		character.destroy();
+		// remove it from the list
+		delete characters[sourceId];		
+		// play sound
+		sounds.userLeft	&& sounds.userLeft.play()
+	});
+	
+	gameServer.addEventListener('clientEcho', function(data){
+		yeller.dispatchEvent('clientEcho.'+data.message.type+'.'+data.sourceId, data)
+	});
+	gameServer.addEventListener('clientBroadcast', function(data){
+		yeller.dispatchEvent('clientBroadcast.'+data.message.type+'.'+data.sourceId, data)
+	});
+	gameServer.addEventListener('userInfo', function(sourceId, curUserInfo, oldUserInfo){
+		yeller.dispatchEvent('userInfo.update.'+sourceId, curUserInfo, oldUserInfo)
+	});
+
+
+	//////////////////////////////////////////////////////////////////////////
+	//		PageUI							//
+	//////////////////////////////////////////////////////////////////////////
+	var pageUI	= new PageUI();
+	pageUI.roomName(roomName)
+		.nickName(gameServer.userInfo().nickName);
+	
+	pageUI.addEventListener('skinBasenameChange', function(value){
+		player.skinBasename(value)
+	})
+	pageUI.addEventListener('nickNameChange', function(value){
+		player.nickName(value)
+	})
+	pageUI.addEventListener('say', function(value){
+		player.say(value)
+	})
+	
+
+	tQuery.Flow().par(function(next){
+		cache.getSet('textureCubeMars', function(){
+			var textureUrls	= tQuery.TextureCube.createUrls('mars', '.jpg', '../../vendor/tquery/plugins/assets/images/textures/cube');
+			var textureCube	= THREE.ImageUtils.loadTextureCube(textureUrls, undefined, function(){
+				next();
+			});
+			return textureCube;
+		});			
+	}).par(function(next){
+		var callback	= yeller.addEventListener('roomJoined', function(){
+			yeller.removeEventListener('roomJoined', callback);
+			next();
+		})
+	}).seq(function(){
+		new SceneGround({
+			roomName	: roomName
+		});		
+		// remove the loading display
+		document.querySelector('#loadingDisplay').style.display	= 'none';
+	});
+});	// end of require()
+</script>
+
+<!-- github ribbon -->
+<a href="https://github.com/jeromeetienne/chatandfight" target='_blank'><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_red_aa0000.png" alt="Fork me on GitHub"></a>
+
+<!-- share buttons -->
+<div style='position: absolute; margin: 10px'>
+	<!-- twitter share button -->
+	<a href="https://twitter.com/share" class="twitter-share-button" data-text='Chat and Fight is a fun multiplayer game in webgl. Check it out!' data-via="jerome_etienne">Tweet</a>
+	<script>!function(d,s,id){var js,fjs=d.getElementsByTagName(s)[0];if(!d.getElementById(id)){js=d.createElement(s);js.id=id;js.src="//platform.twitter.com/widgets.js";fjs.parentNode.insertBefore(js,fjs);}}(document,"script","twitter-wjs");</script>
+	<br/>
+	<!-- google plus button -->
+	<!-- Place this tag where you want the +1 button to render. -->
+	<div class="g-plusone" data-size="small"></div>
+
+	<!-- Place this tag after the last +1 button tag. -->
+	<script type="text/javascript">
+	  (function() {
+	    var po = document.createElement('script'); po.type = 'text/javascript'; po.async = true;
+	    po.src = 'https://apis.google.com/js/plusone.js';
+	    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(po, s);
+	  })();
+	</script>
+</div>
+
+<!-- container for canvas 3d -->
+<div id='canvasContainer'></div>
+
+<!-- loading display -->
+<div id='loadingDisplay' style='position: absolute; top:0; left:0; background: black; width: 100%; height: 100%;'>
+	<div style='color: white; text-align: center; font-size: 300%;'>
+		<br/>Loading&hellip;
+		<br/><progress></progress>
+	</div>
+</div>
+
+</body></html>

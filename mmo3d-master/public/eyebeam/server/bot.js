@@ -42,6 +42,7 @@ Bot.prototype.sourceId = function() {
 };
 
 Bot.prototype.userInfo = function() {
+	console.log(this._userInfo);
 	return this._userInfo;
 };
 

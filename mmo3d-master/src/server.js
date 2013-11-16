@@ -12,6 +12,7 @@ app.use('/worlds', express.static(__dirname + '/../public/worlds'));
 app.use('/sounds', express.static(__dirname + '/../public/sounds'));
 app.use('/vendor', express.static(__dirname + '/../public/vendor'));
 app.use('/montain', express.static(__dirname + '/../public/montain'));
+app.use('/eyebeam', express.static(__dirname + '/../public/eyebeam'));
 
 app.use('/', express.static(__dirname + '/..'));
 
